@@ -1,0 +1,784 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+    <title>マルチ・ポリオミノ・テトリス</title>
+    
+    <!-- PWA用マニフェストファイルの指定 -->
+    <link rel="manifest" href="manifest.json">
+    
+    <!-- iOS用の全画面表示（スタンドアロン）メタタグ -->
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <meta name="apple-mobile-web-app-title" content="ポリオミノ">
+    
+    <!-- iOS用のホーム画面アプリアイコン（512x512のプレースホルダー画像） -->
+    <link class="apple-touch-icon" href="https://images.unsplash.com/photo-1618005182384-a83a8bd57fbe?w=512&auto=format&fit=crop&q=60&ixlib=rb-4.0.3">
+    
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        /* iPhoneのノッチ（セーフエリア）とスクロール防止の徹底 */
+        html, body {
+            overflow: hidden;
+            height: 100%;
+            height: 100dvh; /* iOSのツールバーを除いた実際の高さ */
+            background-color: #0f172a;
+            overscroll-behavior: none; /* 引っ張って更新（ラバーバンド）を防止 */
+        }
+        body {
+            touch-action: none;
+            user-select: none;
+            -webkit-user-select: none;
+            /* iOS用の上下セーフエリア余白の確保 */
+            padding-top: max(0.5rem, env(safe-area-inset-top));
+            padding-bottom: max(0.5rem, env(safe-area-inset-bottom));
+        }
+        /* グリッドのセルスタイル */
+        .cell {
+            box-shadow: inset 0 0 4px rgba(255, 255, 255, 0.05);
+            transition: background-color 0.05s ease;
+        }
+        /* iOSでの長押しメニュー、タップハイライトを無効化 */
+        button, div {
+            -webkit-touch-callout: none;
+            -webkit-tap-highlight-color: transparent;
+        }
+    </style>
+</head>
+<body class="text-white font-sans flex flex-col items-center justify-between p-2 overflow-hidden select-none">
+
+    <!-- ヘッダー -->
+    <header class="w-full max-w-md text-center py-1">
+        <h1 class="text-xl md:text-2xl font-black tracking-widest bg-gradient-to-r from-cyan-400 to-indigo-500 bg-clip-text text-transparent">
+            POLYOMINO TRIS
+        </h1>
+        <p class="text-[10px] md:text-xs text-slate-400 font-medium mt-0.5">
+            選択中: <span id="current-mode-label" class="text-cyan-400 font-bold">5マス (ペントミノ)</span>
+        </p>
+    </header>
+
+    <!-- メインコンテンツレイアウト -->
+    <main class="w-full max-w-md flex flex-col gap-2 flex-grow justify-center">
+        
+        <!-- 情報パネル & メイン画面 -->
+        <div class="flex gap-3 justify-center items-stretch w-full px-2">
+            
+            <!-- 左サイドバー: ホールド機能 -->
+            <div class="flex flex-col gap-3 w-16 md:w-20 justify-start">
+                <div class="bg-slate-900/80 border border-slate-700 rounded-xl p-2 text-center backdrop-blur-sm">
+                    <span class="text-[10px] md:text-xs font-bold text-slate-400 uppercase tracking-wider block mb-1">HOLD</span>
+                    <div id="hold-container" class="w-12 h-12 md:w-16 md:h-16 mx-auto relative grid gap-[1px] bg-slate-950/50 rounded-lg p-1">
+                        <!-- ホールドブロックがJSで描画されます -->
+                    </div>
+                </div>
+                
+                <!-- スコア等の情報 -->
+                <div class="bg-slate-900/80 border border-slate-700 rounded-xl p-2 text-center backdrop-blur-sm flex flex-col gap-2">
+                    <div>
+                        <span class="text-[9px] md:text-[10px] font-bold text-slate-400 block font-mono">SCORE</span>
+                        <span id="score" class="text-sm md:text-base font-black text-cyan-400">0</span>
+                    </div>
+                    <div class="border-t border-slate-800 pt-1">
+                        <span class="text-[9px] md:text-[10px] font-bold text-slate-400 block font-mono">LINES</span>
+                        <span id="lines" class="text-sm md:text-base font-black text-purple-400">0</span>
+                    </div>
+                    <div class="border-t border-slate-800 pt-1">
+                        <span class="text-[9px] md:text-[10px] font-bold text-slate-400 block font-mono">LEVEL</span>
+                        <span id="level" class="text-sm md:text-base font-black text-amber-400">1</span>
+                    </div>
+                </div>
+            </div>
+
+            <!-- 中央: メインのゲーム画面 -->
+            <div class="relative bg-slate-950/90 border-2 border-slate-700 rounded-xl overflow-hidden shadow-2xl flex-grow max-w-[240px] md:max-w-[280px]">
+                <div id="game-board" class="grid gap-[1px] bg-slate-900/50 p-[2px] w-full aspect-[12/22]">
+                    <!-- ゲーム盤面がJSで動的に生成されます -->
+                </div>
+            </div>
+
+            <!-- 右サイドバー: 次のブロック -->
+            <div class="flex flex-col gap-3 w-16 md:w-20 justify-start">
+                <div class="bg-slate-900/80 border border-slate-700 rounded-xl p-2 text-center backdrop-blur-sm">
+                    <span class="text-[10px] md:text-xs font-bold text-slate-400 uppercase tracking-wider block mb-1">NEXT</span>
+                    <div id="next-container" class="w-12 h-12 md:w-16 md:h-16 mx-auto relative grid gap-[1px] bg-slate-950/50 rounded-lg p-1">
+                        <!-- 次のブロックがJSで描画されます -->
+                    </div>
+                </div>
+                
+                <!-- メニューボタン -->
+                <button id="btn-show-menu" class="bg-slate-800 hover:bg-slate-700 border border-slate-600 rounded-xl py-2 px-1 text-center flex flex-col items-center justify-center gap-1 active:scale-95 transition-transform">
+                    <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4 text-amber-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M4 6h16M4 12h16M4 18h16" />
+                    </svg>
+                    <span class="text-[8px] md:text-[9px] font-bold">メニュー</span>
+                </button>
+            </div>
+
+        </div>
+
+    </main>
+
+    <!-- モバイル用コントローラー -->
+    <section class="w-full max-w-md px-2 py-1 flex flex-col gap-2">
+        <!-- 上段：ホールド ＆ ハードドロップ ＆ 回転 -->
+        <div class="grid grid-cols-3 gap-2">
+            <button id="btn-hold" class="bg-slate-800 hover:bg-slate-700 active:bg-slate-600 border border-slate-600 rounded-xl py-3 font-bold text-xs flex flex-col items-center justify-center gap-1">
+                <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4 text-cyan-400" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M8 7h12m0 0l-4-4m4 4l-4 4m0 6H4m0 0l4 4m-4-4l4-4" /></svg>
+                ホールド
+            </button>
+            <button id="btn-hard" class="bg-indigo-900 hover:bg-indigo-800 active:bg-indigo-700 border border-indigo-500 rounded-xl py-3 font-bold text-xs flex flex-col items-center justify-center gap-1">
+                <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4 text-indigo-300" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M19 13l-7 7-7-7m14-6l-7 7-7-7" /></svg>
+                落とす
+            </button>
+            <button id="btn-rotate" class="bg-slate-800 hover:bg-slate-700 active:bg-slate-600 border border-slate-600 rounded-xl py-3 font-bold text-xs flex flex-col items-center justify-center gap-1">
+                <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4 text-purple-400" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M4 4v5h.582m15.356 2A8.001 8.001 0 1121.21 7.89M9 11l3-3 3 3" /></svg>
+                回転
+            </button>
+        </div>
+
+        <!-- 下段：左・下・右 -->
+        <div class="grid grid-cols-3 gap-2">
+            <button id="btn-left" class="bg-slate-800 hover:bg-slate-700 active:bg-slate-600 border border-slate-600 rounded-xl py-4 font-bold flex justify-center items-center">
+                <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6 text-slate-300" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="3" d="M15 19l-7-7 7-7" /></svg>
+            </button>
+            <button id="btn-down" class="bg-slate-800 hover:bg-slate-700 active:bg-slate-600 border border-slate-600 rounded-xl py-4 font-bold flex justify-center items-center">
+                <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6 text-slate-300" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="3" d="M19 9l-7 7-7-7" /></svg>
+            </button>
+            <button id="btn-right" class="bg-slate-800 hover:bg-slate-700 active:bg-slate-600 border border-slate-600 rounded-xl py-4 font-bold flex justify-center items-center">
+                <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6 text-slate-300" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="3" d="M9 5l7 7-7 7" /></svg>
+            </button>
+        </div>
+    </section>
+
+    <!-- スタート / 設定画面のモーダル -->
+    <div id="game-modal" class="fixed inset-0 bg-slate-950/95 backdrop-blur-md flex items-center justify-center z-50 p-4 overflow-y-auto">
+        <div class="bg-slate-900 border border-slate-700 rounded-2xl max-w-md w-full p-5 text-center shadow-2xl my-auto">
+            
+            <!-- タイトル -->
+            <h2 id="modal-title" class="text-2xl md:text-3xl font-black text-cyan-400 mb-1 tracking-wider">POLYOMINO TRIS</h2>
+            
+            <!-- 数学コラム -->
+            <div class="bg-slate-950/60 rounded-xl p-3 mb-4 text-left border border-slate-800 text-slate-300">
+                <div class="flex items-center gap-1.5 text-xs font-bold text-amber-400 mb-1">
+                    <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
+                    知ってた？ポリオミノの数学
+                </div>
+                <p class="text-[11px] leading-relaxed">
+                    正方形を辺同士で繋げた図形を「ポリオミノ」と呼びます。実は、任意の正方形の個数 $N$ に対して、<b>「何種類の形が存在するか」を計算する一般的な公式はまだ見つかっていません！</b> 数学者たちもコンピュータを駆使して力尽くで数え上げている、神秘に満ちたパズルです。
+                </p>
+            </div>
+
+            <div id="modal-stats" class="hidden grid grid-cols-2 gap-4 mb-4 bg-slate-950/50 p-3 rounded-xl border border-slate-800">
+                <div>
+                    <span class="text-[10px] text-slate-500 block font-bold">最終スコア</span>
+                    <span id="final-score" class="text-base font-black text-cyan-400">0</span>
+                </div>
+                <div>
+                    <span class="text-[10px] text-slate-500 block font-bold">消したライン</span>
+                    <span id="final-lines" class="text-base font-black text-purple-400">0</span>
+                </div>
+            </div>
+
+            <!-- モード（マス数）選択エリア -->
+            <div class="mb-5">
+                <label class="text-xs font-bold text-slate-400 uppercase tracking-widest block mb-2">マス数 (ポリオミノ) を選択</label>
+                <div class="grid grid-cols-4 gap-2">
+                    
+                    <!-- 3マス -->
+                    <button type="button" onclick="selectMode(3)" id="btn-mode-3" class="mode-btn border border-slate-700 bg-slate-800 rounded-xl p-2 flex flex-col items-center justify-between transition duration-150 active:scale-95">
+                        <span class="text-base font-extrabold text-white">3</span>
+                        <span class="text-[9px] text-slate-400 mt-0.5">トリオミノ</span>
+                        <span class="text-[8px] bg-slate-950/80 px-1 py-0.5 rounded text-emerald-400 font-bold mt-1">全2種</span>
+                    </button>
+                    
+                    <!-- 4マス -->
+                    <button type="button" onclick="selectMode(4)" id="btn-mode-4" class="mode-btn border-2 border-cyan-500 bg-cyan-950/30 rounded-xl p-2 flex flex-col items-center justify-between transition duration-150 active:scale-95">
+                        <span class="text-base font-extrabold text-cyan-400">4</span>
+                        <span class="text-[9px] text-cyan-300 mt-0.5">通常テトリス</span>
+                        <span class="text-[8px] bg-slate-950/80 px-1 py-0.5 rounded text-cyan-400 font-bold mt-1">全7種</span>
+                    </button>
+
+                    <!-- 5マス -->
+                    <button type="button" onclick="selectMode(5)" id="btn-mode-5" class="mode-btn border border-slate-700 bg-slate-800 rounded-xl p-2 flex flex-col items-center justify-between transition duration-150 active:scale-95">
+                        <span class="text-base font-extrabold text-white">5</span>
+                        <span class="text-[9px] text-slate-400 mt-0.5">ペントミノ</span>
+                        <span class="text-[8px] bg-slate-950/80 px-1 py-0.5 rounded text-purple-400 font-bold mt-1">全12種</span>
+                    </button>
+
+                    <!-- 6マス -->
+                    <button type="button" onclick="selectMode(6)" id="btn-mode-6" class="mode-btn border border-slate-700 bg-slate-800 rounded-xl p-2 flex flex-col items-center justify-between transition duration-150 active:scale-95">
+                        <span class="text-base font-extrabold text-white">6</span>
+                        <span class="text-[9px] text-slate-400 mt-0.5">ヘキソミノ</span>
+                        <span class="text-[8px] bg-slate-950/80 px-1 py-0.5 rounded text-rose-400 font-bold mt-1">全15種*</span>
+                    </button>
+
+                </div>
+                <p id="mode-intro" class="text-[11px] text-cyan-300 mt-3 font-medium h-8 flex items-center justify-center">
+                    <!-- モードごとの簡単な説明がここにJSで入ります -->
+                </p>
+            </div>
+
+            <!-- スタートボタン -->
+            <button id="btn-start" class="w-full bg-gradient-to-r from-cyan-500 to-indigo-600 hover:from-cyan-400 hover:to-indigo-500 text-white font-bold py-3 px-6 rounded-xl transition duration-150 transform active:scale-95 shadow-lg shadow-cyan-500/20">
+                ゲーム開始
+            </button>
+        </div>
+    </div>
+
+    <!-- ゲーム制御スクリプト -->
+    <script>
+        // --- ポリオミノごとの形状・色データ定義 ---
+        const POLYOMINO_DATA = {
+            3: {
+                COLS: 8,
+                ROWS: 18,
+                size: 3,
+                name: '3マス (トリオミノ)',
+                intro: '入門用！2種類の形しか出ないのでサクサク簡単に消せて、超初心者でも爽快にプレイできます。',
+                pieces: {
+                    'I3': { shape: [[1,1,1]], color: 'bg-emerald-500 border-emerald-400' },
+                    'L3': { shape: [[1,1],[1,0]], color: 'bg-amber-500 border-amber-400' }
+                }
+            },
+            4: {
+                COLS: 10,
+                ROWS: 20,
+                size: 4,
+                name: '4マス (テトロミノ)',
+                intro: 'いつもの定番ゲーム！絶妙なバランスで考え抜かれた7種類のブロックが登場します。',
+                pieces: {
+                    'I': { shape: [[1,1,1,1]], color: 'bg-cyan-500 border-cyan-400' },
+                    'O': { shape: [[1,1],[1,1]], color: 'bg-yellow-500 border-yellow-400' },
+                    'T': { shape: [[0,1,0],[1,1,1]], color: 'bg-purple-500 border-purple-400' },
+                    'S': { shape: [[0,1,1],[1,1,0]], color: 'bg-green-500 border-green-400' },
+                    'Z': { shape: [[1,1,0],[0,1,1]], color: 'bg-red-500 border-red-400' },
+                    'J': { shape: [[1,0,0],[1,1,1]], color: 'bg-blue-500 border-blue-400' },
+                    'L': { shape: [[0,0,1],[1,1,1]], color: 'bg-orange-500 border-orange-400' }
+                }
+            },
+            5: {
+                COLS: 12,
+                ROWS: 22,
+                size: 5,
+                name: '5マス (ペントミノ)',
+                intro: '一気に難しく！12種類の複雑な形が登場。盤面も少し広めの12列に拡張されています。',
+                pieces: {
+                    'I5': { shape: [[1,1,1,1,1]], color: 'bg-red-500 border-red-400' },
+                    'X5': { shape: [[0,1,0],[1,1,1],[0,1,0]], color: 'bg-emerald-500 border-emerald-400' },
+                    'T5': { shape: [[1,1,1],[0,1,0],[0,1,0]], color: 'bg-blue-500 border-blue-400' },
+                    'U5': { shape: [[1,0,1],[1,1,1]], color: 'bg-orange-500 border-orange-400' },
+                    'V5': { shape: [[1,0,0],[1,0,0],[1,1,1]], color: 'bg-yellow-500 border-yellow-400' },
+                    'W5': { shape: [[1,0,0],[1,1,0],[0,1,1]], color: 'bg-teal-500 border-teal-400' },
+                    'Z5': { shape: [[1,1,0],[0,1,0],[0,1,1]], color: 'bg-pink-500 border-pink-400' },
+                    'F5': { shape: [[0,1,1],[1,1,0],[0,1,0]], color: 'bg-lime-500 border-lime-400' },
+                    'L5': { shape: [[1,1,1,1],[1,0,0,0]], color: 'bg-indigo-500 border-indigo-400' },
+                    'P5': { shape: [[1,1],[1,1],[1,0]], color: 'bg-cyan-500 border-cyan-400' },
+                    'N5': { shape: [[1,1,0,0],[0,1,1,1]], color: 'bg-purple-500 border-purple-400' },
+                    'Y5': { shape: [[0,1,0,0],[1,1,1,1]], color: 'bg-fuchsia-500 border-fuchsia-400' }
+                }
+            },
+            6: {
+                COLS: 14,
+                ROWS: 24,
+                size: 6,
+                name: '6マス (ヘキソミノ)',
+                intro: '激ムズの極み！全35種から選ばれた15種が襲いかかります。広い14列の盤面でも隙間なく組むのは至難の業。',
+                pieces: {
+                    'I6': { shape: [[1,1,1,1,1,1]], color: 'bg-red-500 border-red-400' },
+                    'O6': { shape: [[1,1,1],[1,1,1]], color: 'bg-yellow-500 border-yellow-400' },
+                    'T6': { shape: [[1,1,1,1],[0,1,0,0],[0,1,0,0]], color: 'bg-purple-500 border-purple-400' },
+                    'L6': { shape: [[1,1,1,1,1],[1,0,0,0,0]], color: 'bg-orange-500 border-orange-400' },
+                    'P6': { shape: [[1,1,1],[1,1,1],[1,0,0]], color: 'bg-blue-500 border-blue-400' },
+                    'Z6': { shape: [[1,1,0,0],[0,1,1,0],[0,0,1,1]], color: 'bg-pink-500 border-pink-400' },
+                    'C6': { shape: [[1,1,1],[1,0,1],[1,0,0]], color: 'bg-teal-500 border-teal-400' },
+                    'E6': { shape: [[1,1,1],[1,0,0],[1,1,1]], color: 'bg-indigo-500 border-indigo-400' },
+                    'F6': { shape: [[0,1,1],[1,1,0],[0,1,1]], color: 'bg-lime-500 border-lime-400' },
+                    'H6': { shape: [[1,0,1],[1,1,1],[1,0,0]], color: 'bg-cyan-500 border-cyan-400' },
+                    'N6': { shape: [[1,1,1,0],[0,0,1,1],[0,0,0,1]], color: 'bg-emerald-500 border-emerald-400' },
+                    'X6': { shape: [[0,1,0],[1,1,1],[0,1,1]], color: 'bg-fuchsia-500 border-fuchsia-400' },
+                    'Y6': { shape: [[0,1,0,0],[1,1,1,1],[0,1,0,0]], color: 'bg-violet-500 border-violet-400' },
+                    'S6': { shape: [[0,1,1,1],[1,1,1,0]], color: 'bg-green-500 border-green-400' },
+                    'G6': { shape: [[1,1,1],[1,1,0],[0,1,0]], color: 'bg-rose-500 border-rose-400' }
+                }
+            }
+        };
+
+        // --- ゲーム状態変数 ---
+        let currentSize = 4;
+        let COLS = 10;
+        let ROWS = 20;
+        let PENTOMINOES = {};
+        let KEYS = [];
+
+        let board = [];
+        let score = 0;
+        let lines = 0;
+        let level = 1;
+        let gameOver = true;
+        let isPaused = false;
+        
+        let currentPiece = null;
+        let nextPiece = null;
+        let holdPiece = null;
+        let canHold = true;
+
+        let dropCounter = 0;
+        let dropInterval = 1000; 
+        let lastTime = 0;
+
+        // --- DOM要素 ---
+        const boardEl = document.getElementById('game-board');
+        const scoreEl = document.getElementById('score');
+        const linesEl = document.getElementById('lines');
+        const levelEl = document.getElementById('level');
+        const nextContainer = document.getElementById('next-container');
+        const holdContainer = document.getElementById('hold-container');
+        const modeLabel = document.getElementById('current-mode-label');
+        
+        const modal = document.getElementById('game-modal');
+        const modalTitle = document.getElementById('modal-title');
+        const modalDesc = document.getElementById('modal-desc');
+        const modalStats = document.getElementById('modal-stats');
+        const finalScoreEl = document.getElementById('final-score');
+        const finalLinesEl = document.getElementById('final-lines');
+        const btnStart = document.getElementById('btn-start');
+        const btnShowMenu = document.getElementById('btn-show-menu');
+        const modeIntroEl = document.getElementById('mode-intro');
+
+        // --- モード選択 ---
+        function selectMode(size) {
+            currentSize = size;
+            
+            document.querySelectorAll('.mode-btn').forEach(btn => {
+                btn.className = "mode-btn border border-slate-700 bg-slate-800 rounded-xl p-2 flex flex-col items-center justify-between transition duration-150 active:scale-95 text-white";
+                const mainText = btn.querySelector('span:first-child');
+                const subText = btn.querySelector('span:nth-child(2)');
+                if (mainText) mainText.className = "text-base font-extrabold text-white";
+                if (subText) subText.className = "text-[9px] text-slate-400 mt-0.5";
+            });
+
+            const activeBtn = document.getElementById(`btn-mode-${size}`);
+            activeBtn.className = "mode-btn border-2 border-cyan-500 bg-cyan-950/30 rounded-xl p-2 flex flex-col items-center justify-between transition duration-150 active:scale-95 text-cyan-400";
+            
+            const mainText = activeBtn.querySelector('span:first-child');
+            const subText = activeBtn.querySelector('span:nth-child(2)');
+            if (mainText) mainText.className = "text-base font-extrabold text-cyan-400";
+            if (subText) subText.className = "text-[9px] text-cyan-300 mt-0.5";
+
+            const data = POLYOMINO_DATA[size];
+            modeIntroEl.innerText = data.intro;
+            modeLabel.innerText = data.name;
+
+            COLS = data.COLS;
+            ROWS = data.ROWS;
+            PENTOMINOES = data.pieces;
+            KEYS = Object.keys(PENTOMINOES);
+
+            const previewSize = size >= 5 ? 6 : 4;
+            nextContainer.className = `w-12 h-12 md:w-16 md:h-16 mx-auto relative grid gap-[1px] bg-slate-950/50 rounded-lg p-1 grid-cols-${previewSize} grid-rows-${previewSize}`;
+            holdContainer.className = `w-12 h-12 md:w-16 md:h-16 mx-auto relative grid gap-[1px] bg-slate-950/50 rounded-lg p-1 grid-cols-${previewSize} grid-rows-${previewSize}`;
+
+            initDOMBoard();
+        }
+
+        // --- 盤面生成 ---
+        function initDOMBoard() {
+            boardEl.innerHTML = '';
+            boardEl.style.gridTemplateColumns = `repeat(${COLS}, minmax(0, 1fr))`;
+            
+            for (let r = 0; r < ROWS; r++) {
+                for (let c = 0; c < COLS; c++) {
+                    const cell = document.createElement('div');
+                    cell.className = 'cell bg-slate-900 border border-slate-950/20 rounded-sm aspect-square';
+                    cell.id = `cell-${r}-${c}`;
+                    boardEl.appendChild(cell);
+                }
+            }
+        }
+
+        function createBoardMatrix() {
+            board = Array.from({ length: ROWS }, () => Array(COLS).fill(0));
+        }
+
+        function randomPiece() {
+            const id = KEYS[Math.floor(Math.random() * KEYS.length)];
+            return {
+                id: id,
+                shape: JSON.parse(JSON.stringify(PENTOMINOES[id].shape)),
+                color: PENTOMINOES[id].color,
+                x: Math.floor((COLS - PENTOMINOES[id].shape[0].length) / 2),
+                y: 0
+            };
+        }
+
+        function draw() {
+            for (let r = 0; r < ROWS; r++) {
+                for (let c = 0; c < COLS; c++) {
+                    const cell = document.getElementById(`cell-${r}-${c}`);
+                    if (!cell) continue;
+                    if (board[r][c]) {
+                        cell.className = `cell rounded-sm aspect-square border-t ${board[r][c]}`;
+                    } else {
+                        cell.className = 'cell bg-slate-950/40 rounded-sm aspect-square border border-slate-900/50';
+                    }
+                }
+            }
+
+            if (!gameOver && currentPiece) {
+                const ghostY = getGhostPosition();
+                drawPieceAt(currentPiece.shape, currentPiece.x, ghostY, currentPiece.color, true);
+                drawPieceAt(currentPiece.shape, currentPiece.x, currentPiece.y, currentPiece.color, false);
+            }
+        }
+
+        function drawPieceAt(shape, ox, oy, colorClass, isGhost) {
+            for (let r = 0; r < shape.length; r++) {
+                for (let c = 0; c < shape[r].length; c++) {
+                    if (shape[r][c]) {
+                        const targetY = oy + r;
+                        const targetX = ox + c;
+                        if (targetY >= 0 && targetY < ROWS && targetX >= 0 && targetX < COLS) {
+                            const cell = document.getElementById(`cell-${targetY}-${targetX}`);
+                            if (cell) {
+                                if (isGhost) {
+                                    cell.className = `cell aspect-square border border-dashed border-slate-500/80 bg-slate-800/40`;
+                                } else {
+                                    cell.className = `cell aspect-square border-t ${colorClass} shadow-lg`;
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        function drawPreview(container, piece) {
+            container.innerHTML = '';
+            if (!piece) return;
+
+            const shape = piece.shape;
+            const size = currentSize >= 5 ? 6 : 4;
+            const grid = Array.from({ length: size }, () => Array(size).fill(0));
+            
+            const rOffset = Math.floor((size - shape.length) / 2);
+            const cOffset = Math.floor((size - shape[0].length) / 2);
+
+            for (let r = 0; r < shape.length; r++) {
+                for (let c = 0; c < shape[r].length; c++) {
+                    if (shape[r][c]) {
+                        const tr = r + rOffset;
+                        const tc = c + cOffset;
+                        if (tr >= 0 && tr < size && tc >= 0 && tc < size) {
+                            grid[tr][tc] = piece.color;
+                        }
+                    }
+                }
+            }
+
+            container.style.gridTemplateColumns = `repeat(${size}, minmax(0, 1fr))`;
+
+            for (let r = 0; r < size; r++) {
+                for (let c = 0; c < size; c++) {
+                    const block = document.createElement('div');
+                    if (grid[r][c]) {
+                        block.className = `w-full h-full rounded-sm border-t ${grid[r][c]}`;
+                    } else {
+                        block.className = 'w-full h-full bg-slate-900/30';
+                    }
+                    container.appendChild(block);
+                }
+            }
+        }
+
+        function checkCollision(shape, ox, oy) {
+            for (let r = 0; r < shape.length; r++) {
+                for (let c = 0; c < shape[r].length; c++) {
+                    if (shape[r][c]) {
+                        const nextX = ox + c;
+                        const nextY = oy + r;
+                        if (nextX < 0 || nextX >= COLS || nextY >= ROWS) {
+                            return true; 
+                        }
+                        if (nextY >= 0 && board[nextY][nextX]) {
+                            return true; 
+                        }
+                    }
+                }
+            }
+            return false;
+        }
+
+        function getGhostPosition() {
+            let ghostY = currentPiece.y;
+            while (!checkCollision(currentPiece.shape, currentPiece.x, ghostY + 1)) {
+                ghostY++;
+            }
+            return ghostY;
+        }
+
+        function rotate() {
+            if (gameOver || isPaused) return;
+            const shape = currentPiece.shape;
+            const N = shape.length;
+            const M = shape[0].length;
+            
+            const rotated = Array.from({ length: M }, () => Array(N).fill(0));
+            for (let r = 0; r < N; r++) {
+                for (let c = 0; c < M; c++) {
+                    rotated[c][N - 1 - r] = shape[r][c];
+                }
+            }
+
+            const kicks = [0, -1, 1, -2, 2, -3, 3]; 
+            for (let kick of kicks) {
+                if (!checkCollision(rotated, currentPiece.x + kick, currentPiece.y)) {
+                    currentPiece.x += kick;
+                    currentPiece.shape = rotated;
+                    draw();
+                    return;
+                }
+            }
+        }
+
+        function move(dir) {
+            if (gameOver || isPaused) return;
+            if (!checkCollision(currentPiece.shape, currentPiece.x + dir, currentPiece.y)) {
+                currentPiece.x += dir;
+                draw();
+            }
+        }
+
+        function hold() {
+            if (gameOver || !canHold || isPaused) return;
+
+            const nextHold = {
+                id: currentPiece.id,
+                shape: JSON.parse(JSON.stringify(PENTOMINOES[currentPiece.id].shape)),
+                color: PENTOMINOES[currentPiece.id].color
+            };
+
+            if (holdPiece === null) {
+                holdPiece = nextHold;
+                currentPiece = nextPiece;
+                nextPiece = randomPiece();
+                drawPreview(nextContainer, nextPiece);
+            } else {
+                const temp = holdPiece;
+                holdPiece = nextHold;
+                
+                currentPiece = {
+                    id: temp.id,
+                    shape: temp.shape,
+                    color: temp.color,
+                    x: Math.floor((COLS - temp.shape[0].length) / 2),
+                    y: 0
+                };
+            }
+
+            canHold = false;
+            drawPreview(holdContainer, holdPiece);
+            draw();
+        }
+
+        function drop() {
+            if (gameOver || isPaused) return;
+            if (!checkCollision(currentPiece.shape, currentPiece.x, currentPiece.y + 1)) {
+                currentPiece.y++;
+                dropCounter = 0;
+            } else {
+                lockPiece();
+            }
+            draw();
+        }
+
+        function hardDrop() {
+            if (gameOver || isPaused) return;
+            while (!checkCollision(currentPiece.shape, currentPiece.x, currentPiece.y + 1)) {
+                currentPiece.y++;
+                score += 2; 
+            }
+            lockPiece();
+            draw();
+        }
+
+        function lockPiece() {
+            for (let r = 0; r < currentPiece.shape.length; r++) {
+                for (let c = 0; c < currentPiece.shape[r].length; c++) {
+                    if (currentPiece.shape[r][c]) {
+                        const boardY = currentPiece.y + r;
+                        const boardX = currentPiece.x + c;
+                        
+                        if (boardY < 0) {
+                            triggerGameOver();
+                            return;
+                        }
+                        board[boardY][boardX] = currentPiece.color;
+                    }
+                }
+            }
+
+            clearLines();
+            spawnNext();
+        }
+
+        function spawnNext() {
+            currentPiece = nextPiece;
+            nextPiece = randomPiece();
+            canHold = true;
+
+            drawPreview(nextContainer, nextPiece);
+
+            if (checkCollision(currentPiece.shape, currentPiece.x, currentPiece.y)) {
+                triggerGameOver();
+            }
+        }
+
+        function clearLines() {
+            let cleared = 0;
+            for (let r = ROWS - 1; r >= 0; r--) {
+                const isFull = board[r].every(val => val !== 0);
+                if (isFull) {
+                    board.splice(r, 1);
+                    board.unshift(Array(COLS).fill(0));
+                    cleared++;
+                    r++; 
+                }
+            }
+
+            if (cleared > 0) {
+                lines += cleared;
+                
+                const scoreTable = [0, 100, 300, 600, 1000, 1500, 2200]; 
+                score += (scoreTable[cleared] || 2500) * level * (currentSize - 2);
+
+                level = Math.floor(lines / 5) + 1; 
+                dropInterval = Math.max(80, 1000 - (level - 1) * 110);
+
+                scoreEl.innerText = score;
+                linesEl.innerText = lines;
+                levelEl.innerText = level;
+            }
+        }
+
+        function update(time = 0) {
+            if (gameOver || isPaused) return;
+
+            const deltaTime = time - lastTime;
+            lastTime = time;
+
+            dropCounter += deltaTime;
+            if (dropCounter > dropInterval) {
+                drop();
+            }
+
+            requestAnimationFrame(update);
+        }
+
+        function triggerGameOver() {
+            gameOver = true;
+            
+            finalScoreEl.innerText = score;
+            finalLinesEl.innerText = lines;
+            modalTitle.innerText = "GAME OVER";
+            modalTitle.className = "text-2xl font-black text-rose-500 mb-2";
+            modalStats.classList.remove('hidden');
+            btnStart.innerText = "もう一度挑戦";
+            modal.classList.remove('hidden');
+        }
+
+        function startNewGame() {
+            createBoardMatrix();
+            score = 0;
+            lines = 0;
+            level = 1;
+            dropInterval = 1000;
+            dropCounter = 0;
+            gameOver = false;
+            isPaused = false;
+            holdPiece = null;
+            canHold = true;
+
+            scoreEl.innerText = score;
+            linesEl.innerText = lines;
+            levelEl.innerText = level;
+
+            currentPiece = randomPiece();
+            nextPiece = randomPiece();
+
+            drawPreview(nextContainer, nextPiece);
+            drawPreview(holdContainer, holdPiece);
+            
+            modal.classList.add('hidden');
+            
+            lastTime = performance.now();
+            draw();
+            update(lastTime);
+        }
+
+        btnShowMenu.addEventListener('click', () => {
+            isPaused = true;
+            modalTitle.innerText = "設定メニュー";
+            modalTitle.className = "text-2xl font-black text-cyan-400 mb-2";
+            modalStats.classList.add('hidden');
+            btnStart.innerText = "ゲームに戻る / 開始";
+            modal.classList.remove('hidden');
+        });
+
+        btnStart.addEventListener('click', () => {
+            if (gameOver) {
+                startNewGame();
+            } else {
+                isPaused = false;
+                modal.classList.add('hidden');
+                lastTime = performance.now();
+                update(lastTime);
+                draw();
+            }
+        });
+
+        // キーボード
+        window.addEventListener('keydown', e => {
+            if (gameOver || isPaused) return;
+            switch(e.code) {
+                case 'ArrowLeft': move(-1); break;
+                case 'ArrowRight': move(1); break;
+                case 'ArrowDown': drop(); break;
+                case 'ArrowUp': rotate(); break;
+                case 'Space': hardDrop(); e.preventDefault(); break;
+                case 'KeyC': hold(); break;
+            }
+        });
+
+        // モバイルタッチ操作 (イベントキャンセルをしてズームや連打スクロールを防ぐ)
+        const bindTouch = (id, action) => {
+            const btn = document.getElementById(id);
+            btn.addEventListener('touchstart', (e) => {
+                e.preventDefault();
+                action();
+            }, { passive: false });
+        };
+
+        bindTouch('btn-left', () => move(-1));
+        bindTouch('btn-right', () => move(1));
+        bindTouch('btn-down', () => drop());
+        bindTouch('btn-rotate', () => rotate());
+        bindTouch('btn-hard', () => hardDrop());
+        bindTouch('btn-hold', () => hold());
+
+        window.onload = function() {
+            selectMode(4);
+            
+            // サービスワーカーの登録 (PWA化用、かつセキュアなHTTP/HTTPSプロトコルのみで動かす)
+            if ('serviceWorker' in navigator && (window.location.protocol === 'http:' || window.location.protocol === 'https:')) {
+                navigator.serviceWorker.register('sw.js')
+                .then(reg => console.log('Service Worker Registered!', reg))
+                .catch(err => console.error('Service Worker Registration Failed!', err));
+            } else {
+                console.log('Service Worker skipped: Current environment does not support Service Workers (e.g., sandbox blob URL or local file).');
+            }
+        };
+    </script>
+</body>
+</html>
